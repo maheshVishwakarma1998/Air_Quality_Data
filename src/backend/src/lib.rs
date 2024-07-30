@@ -1,3 +1,4 @@
+
 #[macro_use]
 extern crate serde;
 use candid::{Decode, Encode};
@@ -7,10 +8,11 @@ use ic_stable_structures::{BoundedStorable, Cell, DefaultMemoryImpl, StableBTree
 use std::collections::HashMap;
 use std::{borrow::Cow, cell::RefCell};
 
+/* Type alias for memory and ID cell */
 type Memory = VirtualMemory<DefaultMemoryImpl>;
 type IdCell = Cell<u64, Memory>;
-// ... (existing imports and types)
 
+/* Struct for air quality data */
 #[derive(candid::CandidType, Clone, Serialize, Deserialize, Default)]
 struct AirQualityData {
     id: u64,
@@ -22,8 +24,8 @@ struct AirQualityData {
     weather_conditions: WeatherData,
 }
 
+/* Implementing the Storable trait for AirQualityData struct */
 impl Storable for AirQualityData {
-    // Implement Storable trait methods for serialization and deserialization
     fn to_bytes(&self) -> std::borrow::Cow<[u8]> {
         Cow::Owned(Encode!(self).unwrap())
     }
@@ -33,11 +35,13 @@ impl Storable for AirQualityData {
     }
 }
 
+/* Implementing the BoundedStorable trait for AirQualityData struct */
 impl BoundedStorable for AirQualityData {
     const MAX_SIZE: u32 = 1024;
     const IS_FIXED_SIZE: bool = false;
 }
 
+/* Thread-local storage setup */
 thread_local! {
     static AIR_QUALITY_MEMORY_MANAGER: RefCell<MemoryManager<DefaultMemoryImpl>> = RefCell::new(
         MemoryManager::init(DefaultMemoryImpl::default())
@@ -54,12 +58,12 @@ thread_local! {
     ));
 }
 
-// Helper method to perform insert for AirQualityData
+/* Helper method to perform insert for AirQualityData */
 fn do_insert_air_quality(data: &AirQualityData) {
     AIR_QUALITY_STORAGE.with(|service| service.borrow_mut().insert(data.id, data.clone()));
 }
 
-// Existing struct for weather conditions
+/* Struct for weather conditions */
 #[derive(candid::CandidType, Clone, Serialize, Deserialize, Default)]
 struct WeatherData {
     temperature: f64,
@@ -67,8 +71,7 @@ struct WeatherData {
     wind_speed: f64,
 }
 
-// ... (existing thread-local variables and payload structure)
-
+/* Struct for air quality update payload */
 #[derive(candid::CandidType, Serialize, Deserialize, Default)]
 struct AirQualityUpdatePayload {
     location: String,
@@ -78,9 +81,14 @@ struct AirQualityUpdatePayload {
     weather_conditions: Option<WeatherData>,
 }
 
-// ... (existing functions)
+/* Enum for error handling */
+#[derive(candid::CandidType, Deserialize, Serialize)]
+enum Error {
+    NotFound { msg: String },
+    InvalidInput { msg: String },
+}
 
-// 2.7.8 get_air_quality_data Function:
+/* Function to get air quality data by ID */
 #[ic_cdk::query]
 fn get_air_quality_data(id: u64) -> Result<AirQualityData, Error> {
     match _get_air_quality_data(&id) {
@@ -91,14 +99,21 @@ fn get_air_quality_data(id: u64) -> Result<AirQualityData, Error> {
     }
 }
 
-// 2.7.9 _get_air_quality_data Function:
+/* Helper function to get air quality data by ID */
 fn _get_air_quality_data(id: &u64) -> Option<AirQualityData> {
     AIR_QUALITY_STORAGE.with(|s| s.borrow().get(id))
 }
 
-// 2.7.10 add_air_quality_data Function:
+/* Function to add air quality data */
 #[ic_cdk::update]
-fn add_air_quality_data(data: AirQualityUpdatePayload) -> Option<AirQualityData> {
+fn add_air_quality_data(data: AirQualityUpdatePayload) -> Result<AirQualityData, Error> {
+    // Validate input payload
+    if data.location.is_empty() || data.health_recommendations.is_empty() {
+        return Err(Error::InvalidInput {
+            msg: "Location and health recommendations must be provided and non-empty".to_string(),
+        });
+    }
+
     let id = AIR_QUALITY_ID_COUNTER
         .with(|counter| {
             let current_value = *counter.borrow().get();
@@ -120,15 +135,22 @@ fn add_air_quality_data(data: AirQualityUpdatePayload) -> Option<AirQualityData>
     };
 
     do_insert_air_quality(&air_quality_data);
-    Some(air_quality_data)
+    Ok(air_quality_data)
 }
 
-// 2.7.11 update_air_quality_data Function:
+/* Function to update air quality data */
 #[ic_cdk::update]
 fn update_air_quality_data(
     id: u64,
     payload: AirQualityUpdatePayload,
 ) -> Result<AirQualityData, Error> {
+    // Validate input payload
+    if payload.location.is_empty() || payload.health_recommendations.is_empty() {
+        return Err(Error::InvalidInput {
+            msg: "Location and health recommendations must be provided and non-empty".to_string(),
+        });
+    }
+
     match AIR_QUALITY_STORAGE.with(|service| service.borrow().get(&id)) {
         Some(mut data) => {
             data.location = payload.location;
@@ -150,7 +172,7 @@ fn update_air_quality_data(
     }
 }
 
-// 2.7.12 delete_air_quality_data Function:
+/* Function to delete air quality data */
 #[ic_cdk::update]
 fn delete_air_quality_data(id: u64) -> Result<AirQualityData, Error> {
     match AIR_QUALITY_STORAGE.with(|service| service.borrow_mut().remove(&id)) {
@@ -164,6 +186,7 @@ fn delete_air_quality_data(id: u64) -> Result<AirQualityData, Error> {
     }
 }
 
+/* Function to get all air quality data */
 #[ic_cdk::query]
 fn get_all_air_quality_data() -> Result<Vec<AirQualityData>, Error> {
     Ok(AIR_QUALITY_STORAGE.with(|service| {
@@ -172,6 +195,7 @@ fn get_all_air_quality_data() -> Result<Vec<AirQualityData>, Error> {
     }))
 }
 
+/* Function to search air quality data by location */
 #[ic_cdk::query]
 fn search_air_quality_data_by_location(location: String) -> Result<Vec<AirQualityData>, Error> {
     Ok(AIR_QUALITY_STORAGE.with(|service| {
@@ -189,6 +213,7 @@ fn search_air_quality_data_by_location(location: String) -> Result<Vec<AirQualit
     }))
 }
 
+/* Function to get air quality data by weather conditions */
 #[ic_cdk::query]
 fn get_air_quality_data_by_weather_conditions(
     min_temperature: f64,
@@ -220,6 +245,7 @@ fn get_air_quality_data_by_weather_conditions(
     }))
 }
 
+/* Function to get air quality data by pollutant level */
 #[ic_cdk::query]
 fn get_air_quality_data_by_pollutant_level(
     pollutant: String,
@@ -245,6 +271,7 @@ fn get_air_quality_data_by_pollutant_level(
     }))
 }
 
+/* Function to get air quality data by timestamp range */
 #[ic_cdk::query]
 fn get_air_quality_data_by_timestamp_range(
     start_timestamp: u64,
@@ -265,11 +292,5 @@ fn get_air_quality_data_by_timestamp_range(
     }))
 }
 
-// Enum for error handling
-#[derive(candid::CandidType, Deserialize, Serialize)]
-enum Error {
-    NotFound { msg: String },
-}
-
-// Export Candid interface definitions for the canister
+/* Export Candid interface definitions for the canister */
 ic_cdk::export_candid!();
